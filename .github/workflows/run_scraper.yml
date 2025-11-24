@@ -1,0 +1,41 @@
+name: 🔁 Endole Scraper (Weekly)
+
+on:
+  schedule:
+  # Runs every 12 hours and 5 minutes #changed - (i.e., at 00:05, 06:05, 12:05, 18:05 UTC daily)
+    - cron: '5 */12 * * *'  # Every Monday at 05:00 UTC
+  workflow_dispatch:      # ✅ Enables manual Run button
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v3
+
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        python -m playwright install --with-deps
+
+    - name: 🔐 Create .env file
+      run: |
+        echo "ENDOLE_EMAIL=${{ secrets.ENDOLE_EMAIL }}" >> .env
+        echo "ENDOLE_PASSWORD=${{ secrets.ENDOLE_PASSWORD }}" >> .env
+        echo "GOOGLE_SHEET_ID=${{ secrets.GOOGLE_SHEET_ID }}" >> .env
+
+    - name: 🔐 Create service_account.json
+      run: echo '${{ secrets.SERVICE_ACCOUNT_JSON }}' > service_account.json
+
+    - name: 🧭 List current directory (debug)
+      run: ls -R
+
+    - name: 🧹 Run the Endole scraper
+      run: python scraper.py
