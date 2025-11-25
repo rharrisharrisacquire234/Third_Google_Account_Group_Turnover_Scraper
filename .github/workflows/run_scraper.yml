@@ -3,7 +3,7 @@ name: 🔁 Endole Scraper (Weekly)
 on:
   schedule:
   # Runs every 12 hours and 5 minutes #changed - (i.e., at 00:05, 06:05, 12:05, 18:05 UTC daily)
-    - cron: '5 */12 * * *'  # Every Monday at 05:00 UTC
+    - cron: '5 */5 * * *'  # Every Monday at 05:00 UTC
   workflow_dispatch:      # ✅ Enables manual Run button
 
 jobs:
