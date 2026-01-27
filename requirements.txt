@@ -4,3 +4,4 @@ gspread_dataframe
 pandas
 python-dotenv
 google-auth
+numpy
