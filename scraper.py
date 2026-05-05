@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+import re
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 import gspread
@@ -45,7 +46,7 @@ reg_name_idx = headers.index("Company")
 turnover_idx = headers.index("Individual Turnover")
 
 # ------------------------------------------------------------------
-# Helpers
+# Create Slug
 # ------------------------------------------------------------------
 def create_endole_slug(company_name: str) -> str:
     return (
@@ -59,6 +60,43 @@ def create_endole_slug(company_name: str) -> str:
         .replace(" ", "-")
     )
 
+# ------------------------------------------------------------------
+# Convert Endole Financial Values to Number
+# ------------------------------------------------------------------
+def convert_value(value):
+    """
+    Converts financial strings like:
+    - '£36.84M'   -> 36840000
+    - '£498.42K'  -> 498420
+    - '-£1.14M'   -> -1140000
+    - '£16.24B'   -> 16240000000
+    - 'Unreported', 'N/A' -> 0
+    """
+    if not value or value.strip().lower() in ("unreported", "n/a", ""):
+        return 0
+
+    value = value.strip()
+
+    is_negative = value.startswith("-")
+
+    cleaned = re.sub(r"[£\-\+]", "", value).strip()
+
+    match = re.match(r"^([\d,]+\.?\d*)([KMBkmb]?)$", cleaned)
+    if not match:
+        return value  # return unchanged if format is unexpected
+
+    number = float(match.group(1).replace(",", ""))
+    suffix = match.group(2).upper()
+
+    multipliers = {"K": 1000, "M": 1000000, "B": 1000000000, "": 1}
+
+    result = int(number * multipliers.get(suffix, 1))
+
+    return -result if is_negative else result
+
+# ------------------------------------------------------------------
+# Scraper
+# ------------------------------------------------------------------
 async def scrape_company_data(page, reg_number: str, company_slug: str) -> str:
     url = f"https://app.endole.co.uk/company/{reg_number}/{company_slug}"
     print(f"🔗 Visiting: {url}")
@@ -105,14 +143,10 @@ async def main():
 
         print("✅ Logged in successfully.\n")
 
-        # ---------------- CACHE ----------------
         turnover_cache = {}
-
-        # ---------------- BATCH STORAGE ----------------
         updates = []
         batch_size = 20
 
-        # ---------------- PROCESS ROWS ----------------
         for idx, row in enumerate(rows):
 
             try:
@@ -120,12 +154,10 @@ async def main():
                 reg_name = row[reg_name_idx].strip()
                 turnover_val = row[turnover_idx].strip() if row[turnover_idx] else ""
 
-                # Skip invalid rows
                 if not reg_number or not reg_name or reg_number.lower() == "nan":
                     print(f"⏭️ Skipping invalid row {idx + 2}")
                     continue
 
-                # Skip already processed rows
                 if turnover_val:
                     print(f"⏭️ Skipping row {idx + 2}, already has data")
                     continue
@@ -137,7 +169,8 @@ async def main():
                     turnover = turnover_cache[cache_key]
                     print(f"🎯 Cached → Turnover: {turnover}")
                 else:
-                    turnover = await scrape_company_data(page, reg_number, slug)
+                    turnover_raw = await scrape_company_data(page, reg_number, slug)
+                    turnover = convert_value(turnover_raw)
                     turnover_cache[cache_key] = turnover
 
                 row_number = idx + 2
@@ -149,7 +182,6 @@ async def main():
 
                 print(f"📝 Queued update for row {row_number}")
 
-                # Close company tab if present
                 try:
                     close_btn = page.locator("div._close")
                     if await close_btn.count():
@@ -158,19 +190,15 @@ async def main():
                 except Exception:
                     pass
 
-                # Send batch update
                 if len(updates) >= batch_size:
                     print("🚀 Sending batch update...")
                     sheet.batch_update(updates)
                     updates.clear()
-
-                    # Allow n8n workflows time to use API
                     time.sleep(3)
 
             except Exception as e:
                 print(f"❌ Error at row {idx + 2}: {e}")
 
-        # Final batch update
         if updates:
             print("🚀 Sending final batch update...")
             sheet.batch_update(updates)
